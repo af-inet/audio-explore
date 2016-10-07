@@ -6,61 +6,56 @@ import pygame
 import random
 import time
 
+# initialize joysticks
 pygame.init()
 pygame.joystick.init()
-
-clock = pygame.time.Clock()
 j = pygame.joystick.Joystick(0) 
 j.init()
 
-CHUNK = 1024
-
-if len(sys.argv) < 2:
-    print("Plays a wave file.\n\nUsage: %s filename.wav" % sys.argv[0])
-
-wf = wave.open(sys.argv[1], 'rb')
+# initialize audio
 p = pyaudio.PyAudio()
 
-format = p.get_format_from_width(wf.getsampwidth())
-channels = wf.getnchannels()
-rate = wf.getframerate() / 4
+FORMAT   = 8
+CHANNELS = 2
+RATE     = 44100
 
+# buffer size
+SIZE = 1024
 
-print("format: %s\nchannels: %s\nrate: %s\n" % (format,channels,rate))
-
+# open an audio stream
 stream = p.open(
-    format   = format,
-    channels = channels,
-    rate     = rate,
+    format   = FORMAT,
+    channels = CHANNELS,
+    rate     = RATE,
     output   = True
 )
 
-#data = wf.readframes(CHUNK)
-
 t = 0
-
-SIZE = 1024
-
 def gen():
     buf = bytearray(SIZE)
     
     for i in range(0, SIZE):
         global t
+
         t = t + 1
+
         if (i % 64) == 0:
             pygame.event.pump()
-        f = j.get_axis(0)
-        n = int( ( (f * (math.cos(( f * (t / 10) ) * 10) * 32)) ) % 255)
-        print( str(n) )
+
+        f1 = math.fabs(j.get_axis(1)/10) * 10
+        f2 = math.fabs(j.get_axis(3)/10) * 10
+
+        n = int( (( f2 * (math.sin((10*t*f1*f2)/1000)+1) * 100)) % 256 )
         buf[i] = chr(n)
+
+    print( ''.join(map(lambda b: "%0x" % b, buf)) )
 
     return buffer(buf)
 
-while False:
+while True:
     data = gen()
     stream.write(data)
     time.sleep(0.001)
-    #data = wf.readframes(CHUNK)
 
 stream.stop_stream()
 stream.close()
