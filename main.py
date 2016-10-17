@@ -1,62 +1,47 @@
-import pyaudio
-import wave
+from noise import Noise
 import sys
 import math
-import pygame
-import random
-import time
 
-# initialize joysticks
-pygame.init()
-pygame.joystick.init()
-j = pygame.joystick.Joystick(0) 
-j.init()
+class MyNoise(Noise):
 
-# initialize audio
-p = pyaudio.PyAudio()
+    def update(self):
 
-FORMAT   = 8
-CHANNELS = 2
-RATE     = 44100
+        try:
+        
+            data = self.input.read(self.SIZE)
+           
+            def proc(n):
+                f = 200 + (math.cos(self.delta) * 200)
+                r = int(f) * self.RATE * 1000
+                return r
 
-# buffer size
-SIZE = 1024
+            data = self.process(data, proc)
 
-# open an audio stream
-stream = p.open(
-    format   = FORMAT,
-    channels = CHANNELS,
-    rate     = RATE,
-    output   = True
-)
+            #sys.stdout.write( b' '.join(map(str, map(ord, data))) )
 
-t = 0
-def gen():
-    buf = bytearray(SIZE)
-    
-    for i in range(0, SIZE):
-        global t
+            self.output.write(data)
 
-        t = t + 1
+        except IOError as e: 
 
-        if (i % 64) == 0:
-            pygame.event.pump()
+            # At some point it would be nice to move error handling into the noise engine.
 
-        f1 = math.fabs(j.get_axis(1)/10) * 10
-        f2 = math.fabs(j.get_axis(3)/10) * 10
+            if e.errno == -9981:
+                print("ERROR: Input Overflow, ignoring...")
 
-        n = int( (( f2 * (math.sin((10*t*f1*f2)/1000)+1) * 100)) % 256 )
-        buf[i] = chr(n)
+            elif e.errno == -9988:
+                print("ERROR: Input Closed, attempting to reopen...")
+                self.open_input()
 
-    print( ''.join(map(lambda b: "%0x" % b, buf)) )
+            else:
+                print("Unknown IOError %s %s" % (e.errno, e.strerror))
 
-    return buffer(buf)
+            # Should leave this on while debugging, makes errors more obvious.
+            # During production we'll try to survive errors as much as possible.
+            n.end()
+        
 
-while True:
-    data = gen()
-    stream.write(data)
-    time.sleep(0.001)
+n = MyNoise()
+n.dump()
+n.run()
+n.end()
 
-stream.stop_stream()
-stream.close()
-p.terminate()
