@@ -10,9 +10,11 @@ import struct
 
 class Noise():
 
-    SIZE = 128
-    MAX = 4294967295
-    RATE = 44100 / 2
+    SIZE = 1024 / 2
+    RATE = 44100
+    SAMPLE_SIZE = pyaudio.paInt16
+    WIDTH = 400
+    HEIGHT = 300
 
     def update(self):
         pass
@@ -23,11 +25,20 @@ class Noise():
     # unpacks a string into a list of ints (string length should be divisible by 4, or something probably went wrong)
     ### pretty sure this only works for paInt32 TODO look into that 
     def decode(self, data):
-        return map(lambda i: struct.unpack("I", data[i:i+4])[0], range(0, len(data), 4))
+        return map(
+            lambda i:
+                struct.unpack(self.unpack_format, data[i:i+self.unpack_size])[0],
+            range(0, len(data), self.unpack_size)
+        )
 
     # packs a list of ints into a string
     def encode(self, values):
-        return b''.join(map(lambda i: struct.pack("I", i), values))
+        def pack(n):
+            try:
+                return struct.pack(self.unpack_format, n)
+            except Exception as e:
+                raise Exception("Couldn't struct.pack: %s" % n)
+        return b''.join(map(pack, values))
 
     # 1. Decodes a (paInt32) PCM buffer into a list of discrete samples.
     # 2. `cb` is mapped over the resulting sample list.
@@ -49,8 +60,7 @@ class Noise():
             if type(val) != int:
                 raise TypeError("NOISE: Processer returned non-integer type: %s: %s" % (type(val), val))
 
-            # TODO: look into why this is the MAX
-            val = val % self.MAX
+            val = val % self.unpack_max
 
             return val
         
@@ -79,7 +89,7 @@ class Noise():
     # Stream of input from the default microphone device.
     def open_input(self):
         self.input = self.pa.open(
-            format = pyaudio.paInt32,
+            format = self.SAMPLE_SIZE,
             channels = 1,
             rate = self.RATE,
             input = True,
@@ -89,10 +99,10 @@ class Noise():
     # Streams output to the default speakers.
     def open_output(self):
         self.output = self.pa.open(
-            format   = pyaudio.paInt32,
+            format = self.SAMPLE_SIZE,
             channels = 1,
-            rate     = self.RATE,
-            output   = True
+            rate = self.RATE,
+            output = True
         )   
 
     def dump(self):
@@ -119,6 +129,30 @@ class Noise():
         for i in range(0, host_api_count):
             pass
 
+    def readwave(self, filename):
+
+        wf = wave.open(filename)
+        result = []
+
+        data = wf.readframes(32)
+        while data:
+            result.append(data)
+            data = wf.readframes(32)
+
+        channels = wf.getnchannels()
+        framerate = wf.getframerate()
+        samplewidth = wf.getsampwidth()
+        result = b''.join(result)
+
+        wf.close()
+
+        return {
+            "data": result,
+            "framerate": framerate,
+            "samplewidth": samplewidth,
+            "channels": channels
+        }
+
     def __init__(self):
 
         # pygame.init()
@@ -135,14 +169,12 @@ class Noise():
         # wf.getnframes()
         # wf.close()
         
-        # initialize a screen
-        width = 400
-        height = 300
-
         pygame.init()
-        
-        self.screen = pygame.display.set_mode([width, height])
+        # initialize a screen
+        self.screen = pygame.display.set_mode([self.WIDTH, self.HEIGHT])
+        # surface color rect width
         pygame.display.update()
+        pygame.display.set_caption("Noise")
 
         # hopefully pygame's audio doesn't interfere
         pygame.mixer.quit()
@@ -161,6 +193,20 @@ class Noise():
 
         self.ticks = 0
         self.delta = 0
+
+        # determine an appropriate encoding / decoding scheme
+        self.unpack_size = None
+        self.unpack_format = None
+        if self.SAMPLE_SIZE == pyaudio.paInt16:
+            self.unpack_size = 2
+            self.unpack_format = "H"
+        elif self.SAMPLE_SIZE == pyaudio.paInt32:
+            self.unpack_size = 4
+            self.unpack_format = "I"
+        else:
+            raise Exception("Unsupported SAMPLE_SIZE: %s" % self.SAMPLE_SIZE)
+
+        self.unpack_max = (2 ** (self.unpack_size * 8))
 
     def close(self):
         self.input.stop_stream()
